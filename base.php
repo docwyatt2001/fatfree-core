@@ -52,6 +52,7 @@ final class Base extends Prefab implements ArrayAccess {
 	const
 		HTTP_100='Continue',
 		HTTP_101='Switching Protocols',
+		HTTP_103='Early Hints',
 		HTTP_200='OK',
 		HTTP_201='Created',
 		HTTP_202='Accepted',
@@ -882,7 +883,7 @@ final class Base extends Prefab implements ArrayAccess {
 				if (isset($type)) {
 					if (isset($this->hive['FORMATS'][$type]))
 						return $this->call($this->hive['FORMATS'][$type],
-							[$args[$pos],$mod,isset($prop)?$prop:null]);
+							[$args[$pos],isset($mod)?$mod:null,isset($prop)?$prop:null]);
 					switch ($type) {
 						case 'plural':
 							preg_match_all('/(?<tag>\w+)'.
@@ -2474,7 +2475,7 @@ class Cache extends Prefab {
 			case 'xcache':
 				return xcache_set($ndx,$data,$ttl);
 			case 'folder':
-				return $fw->write($parts[1].$ndx,$data);
+				return $fw->write($parts[1].str_replace(['/','\\'],'',$ndx),$data);
 		}
 		return FALSE;
 	}
@@ -2741,9 +2742,9 @@ class View extends Prefab {
 					session_start();
 				$fw->sync('SESSION');
 				$data=$this->sandbox($hive,$mime);
-				if(isset($this->trigger['afterrender']))
+				if (isset($this->trigger['afterrender']))
 					foreach($this->trigger['afterrender'] as $func)
-						$data=$fw->call($func,$data);
+						$data=$fw->call($func,[$data, $dir.$file]);
 				if ($ttl)
 					$cache->set($hash,$data,$ttl);
 				return $data;
@@ -2948,7 +2949,11 @@ class Preview extends View {
 				if (!is_file($this->file=($tmp.
 					$fw->SEED.'.'.$fw->hash($view).'.php')) ||
 					filemtime($this->file)<filemtime($view)) {
-					$text=$this->parse($fw->read($view));
+					$contents=$fw->read($view);
+					if (isset($this->trigger['beforerender']))
+						foreach ($this->trigger['beforerender'] as $func)
+							$contents=$fw->call($func, [$contents, $view]);
+					$text=$this->parse($contents);
 					$fw->write($this->file,$this->build($text));
 				}
 				if (isset($_COOKIE[session_name()]) &&
@@ -2958,13 +2963,21 @@ class Preview extends View {
 				$data=$this->sandbox($hive,$mime);
 				if(isset($this->trigger['afterrender']))
 					foreach ($this->trigger['afterrender'] as $func)
-						$data=$fw->call($func, $data);
+						$data=$fw->call($func, [$data, $view]);
 				if ($ttl)
 					$cache->set($hash,$data,$ttl);
 				return $data;
 			}
 		}
 		user_error(sprintf(Base::E_Open,$file),E_USER_ERROR);
+	}
+
+	/**
+	 *	post rendering handler
+	 *	@param $func callback
+	 */
+	function beforerender($func) {
+		$this->trigger['beforerender'][]=$func;
 	}
 
 }
